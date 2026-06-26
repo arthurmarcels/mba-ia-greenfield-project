@@ -17,19 +17,16 @@ const MAX_VIDEO_SIZE_BYTES = 10 * 1024 ** 3;
 /**
  * Body of `POST /videos` (SI-03.6) — pre-registers a draft and starts the
  * multipart upload. The API never receives the file bytes; the client uploads
- * each part directly to MinIO via presigned URLs. The original `filename` is
- * only used to derive the storage key (TD-06) and is never stored on the row.
+ * each part directly to MinIO via presigned URLs. The storage object key is
+ * derived from the declared MIME type's extension
+ * (`<channelId>/<videoId>/original.<ext>`); no client-supplied filename is
+ * accepted or stored.
  */
 export class InitiateUploadDto {
   /** Title shown on the video; set at upload init. */
   @IsString()
   @IsNotEmpty({ message: 'title must not be empty' })
   title: string;
-
-  /** Original filename — used only to derive the storage key, never stored. */
-  @IsString()
-  @IsNotEmpty({ message: 'filename must not be empty' })
-  filename: string;
 
   /** Declared video MIME type; must be in the supported allow-list. */
   @IsIn(ALLOWED_MIME_TYPES, {
