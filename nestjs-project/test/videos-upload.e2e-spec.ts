@@ -109,7 +109,6 @@ describe('Videos upload (e2e)', () => {
 
   const VALID_INITIATE = {
     title: 'My Video',
-    filename: 'clip.mp4',
     mimeType: 'video/mp4',
     sizeBytes: 1024,
   };
@@ -181,6 +180,20 @@ describe('Videos upload (e2e)', () => {
         .get('/videos/not-a-uuid/upload-url')
         .set('Authorization', `Bearer ${accessToken}`)
         .query({ partNumber: 1 })
+        .expect(400);
+
+      expect((res.body as ErrorResponse).error).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 on a partNumber above the 10000 S3 multipart limit', async () => {
+      const accessToken = await registerConfirmAndLogin('pnmax@example.com');
+      const { id } = (await initiateUpload(accessToken).expect(201))
+        .body as InitiateResponse;
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${id}/upload-url`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .query({ partNumber: 10001 })
         .expect(400);
 
       expect((res.body as ErrorResponse).error).toBe('VALIDATION_ERROR');

@@ -8,6 +8,7 @@ import {
   TokenExpiredException,
   TokenReuseDetectedException,
 } from '../exceptions/domain.exception';
+import { SlugGenerationExhaustedException } from '../exceptions/slug-generation-exhausted.exception';
 
 describe('DomainExceptionFilter', () => {
   let filter: DomainExceptionFilter;
@@ -96,6 +97,17 @@ describe('DomainExceptionFilter', () => {
       statusCode: 401,
       error: 'TOKEN_REUSE_DETECTED',
       message: expect.any(String),
+    });
+  });
+
+  it('maps SlugGenerationExhaustedException to 503 with SLUG_GENERATION_EXHAUSTED', () => {
+    filter.catch(new SlugGenerationExhaustedException(), mockHost);
+
+    expect(mockStatus).toHaveBeenCalledWith(503);
+    expect(mockJson).toHaveBeenCalledWith({
+      statusCode: 503,
+      error: 'SLUG_GENERATION_EXHAUSTED',
+      message: 'Unable to generate a unique video slug — please retry',
     });
   });
 });

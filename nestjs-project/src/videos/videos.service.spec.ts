@@ -1,10 +1,15 @@
 import { QueryFailedError } from 'typeorm';
 import { ForbiddenResourceException } from '../common/exceptions/forbidden-resource.exception';
 import { IllegalVideoStatusTransitionException } from '../common/exceptions/illegal-video-status-transition.exception';
+import { SlugGenerationExhaustedException } from '../common/exceptions/slug-generation-exhausted.exception';
 import { PROCESS_VIDEO_JOB } from '../queue/queue.constants';
 import { InitiateUploadDto } from './dtos/initiate-upload.dto';
 import { Video } from './entities/video.entity';
-import { VIDEO_SLUG_LENGTH, VIDEO_STATUS } from './videos.constants';
+import {
+  VIDEO_SLUG_LENGTH,
+  VIDEO_SLUG_MAX_RETRIES,
+  VIDEO_STATUS,
+} from './videos.constants';
 import { VideosService } from './videos.service';
 
 function makeVideo(overrides: Partial<Video> = {}): Video {
@@ -125,6 +130,19 @@ describe('VideosService', () => {
         service.createDraft('channel-id', makeDto()),
       ).rejects.toThrow('Connection lost');
       expect(repo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects with SlugGenerationExhaustedException once retries are exhausted', async () => {
+      const { service, repo } = build();
+      repo.save.mockRejectedValue(makeUniqueError());
+
+      await expect(
+        service.createDraft('channel-id', makeDto()),
+      ).rejects.toBeInstanceOf(SlugGenerationExhaustedException);
+
+      // Every attempt (0..VIDEO_SLUG_MAX_RETRIES) is consumed before giving up.
+      expect(repo.create).toHaveBeenCalledTimes(VIDEO_SLUG_MAX_RETRIES + 1);
+      expect(repo.save).toHaveBeenCalledTimes(VIDEO_SLUG_MAX_RETRIES + 1);
     });
   });
 
