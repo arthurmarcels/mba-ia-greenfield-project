@@ -1,13 +1,15 @@
 # phase-03-videos — Progress
 
-**Status:** planned — implementation not started (awaiting board approval at the planning gate)
-**SIs:** 0/9 implemented
+**Status:** implementation started — branch created, planning artifacts committed, SI-03.1 routed
+**SIs:** 0/9 implemented (SI-03.1 in progress via [AMS-370](/AMS/issues/AMS-370))
 
-> Planning pipeline complete: `research` → `plan-context` → `plan-validate` (**clean**) → `plan-resolve` (`library-refs.md`) → `plan-build` (9 SIs). Implementation (SI-03.1 → SI-03.9) is the next phase of work, routed to engineering (CTO) after the board confirms the plan.
+> Planning pipeline complete and **approved by the board** on parent AMS-368. Git Flow set up by CTO: `dev` created from `main`, working branch `feature/AMS-368-phase-03-videos` from `dev`; planning artifacts committed as the first branch commit (durable spec for all 9 SIs). Implementation routed SI-by-SI per the Dependency Map — only advance when the current SI's suite is green.
+>
+> ⚠️ **Push gate:** repo write access for the agent service account is currently read-only — tracked in [AMS-371](/AMS/issues/AMS-371) (CEO-owned). Does not block engineering (SIs commit locally); gates only the final `git push` + PR.
 
 ### SI-03.1 — Dependencies, Configuration Namespaces, and Docker Compose
-- **Status:** not started
-- **Tests:** —
+- **Status:** routed → Infrastructure Lead ([AMS-370](/AMS/issues/AMS-370)); no deps; blocks SI-03.2/.3/.4
+- **Tests:** — (infra verification: `docker compose up -d` brings minio/redis/video-worker healthy; app boots; existing `GET /` E2E green)
 - **Observations:** adds `minio`, `@nestjs/bullmq`/`bullmq`/`ioredis`, `fluent-ffmpeg`, `nanoid`; new `storage` + `queue` config namespaces; MinIO + Redis + `video-worker` services in Compose; worker image carries FFmpeg.
 
 ### SI-03.2 — Video Entity and Migration
