@@ -1,15 +1,18 @@
 import { DataSource } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { Channel } from '../channels/entities/channel.entity';
+import { Video } from '../videos/entities/video.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { VerificationToken } from '../auth/entities/verification-token.entity';
 import { CreateUsersAndChannels1775687773260 } from './migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from './migrations/1777579850478-CreateAuthTokens';
+import { CreateVideos1782478498145 } from './migrations/1782478498145-CreateVideos';
 import { createTestDataSource } from '../test/create-test-data-source';
 
 const MANAGED_TABLES = [
   'users',
   'channels',
+  'videos',
   'refresh_tokens',
   'verification_tokens',
 ];
@@ -19,12 +22,13 @@ describe('Database migrations (integration)', () => {
 
   beforeAll(async () => {
     dataSource = createTestDataSource(
-      [User, Channel, RefreshToken, VerificationToken],
+      [User, Channel, Video, RefreshToken, VerificationToken],
       {
         synchronize: false,
         migrations: [
           CreateUsersAndChannels1775687773260,
           CreateAuthTokens1777579850478,
+          CreateVideos1782478498145,
         ],
       },
     );
@@ -62,10 +66,10 @@ describe('Database migrations (integration)', () => {
     await dataSource.destroy();
   });
 
-  it('should apply all migrations and create all four tables', async () => {
+  it('should apply all migrations and create all five tables', async () => {
     const ranMigrations = await dataSource.runMigrations();
 
-    expect(ranMigrations).toHaveLength(2);
+    expect(ranMigrations).toHaveLength(3);
 
     const result = await dataSource.query<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.tables
@@ -80,17 +84,18 @@ describe('Database migrations (integration)', () => {
       'refresh_tokens',
       'users',
       'verification_tokens',
+      'videos',
     ]);
   });
 
-  it('should revert the last migration and remove token tables', async () => {
+  it('should revert the last migration and remove videos table', async () => {
     await dataSource.undoLastMigration();
 
     const result = await dataSource.query<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public'
          AND table_name = ANY($1::text[])`,
-      [['refresh_tokens', 'verification_tokens']],
+      [['videos']],
     );
     expect(result).toHaveLength(0);
   });

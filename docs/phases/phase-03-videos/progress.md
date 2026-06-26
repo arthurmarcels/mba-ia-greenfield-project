@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** implementation started — branch created, planning artifacts committed, SI-03.1 routed
-**SIs:** 0/9 implemented (SI-03.1 in progress via [AMS-370](/AMS/issues/AMS-370))
+**Status:** implementation in progress — 2/9 SIs implemented (SI-03.1 ✅, SI-03.4 ✅), SI-03.2 ✅ just completed
+**SIs:** 2/9 implemented (SI-03.1 ✅, SI-03.2 ✅, SI-03.4 ✅; SI-03.3/.5/.6/.7/.8/.9 not started)
 
 > Planning pipeline complete and **approved by the board** on parent AMS-368. Git Flow set up by CTO: `dev` created from `main`, working branch `feature/AMS-368-phase-03-videos` from `dev`; planning artifacts committed as the first branch commit (durable spec for all 9 SIs). Implementation routed SI-by-SI per the Dependency Map — only advance when the current SI's suite is green.
 >
@@ -13,9 +13,11 @@
 - **Observations:** adds `minio`, `@nestjs/bullmq`/`bullmq`/`ioredis`, `fluent-ffmpeg`, `nanoid`; new `storage` + `queue` config namespaces; MinIO + Redis + `video-worker` services in Compose; worker image carries FFmpeg.
 
 ### SI-03.2 — Video Entity and Migration
-- **Status:** not started
-- **Tests:** —
-- **Observations:** `videos` table linked to `channels`; status enum `draft|uploading|processing|ready|error`.
+- **Status:** ✅ **DONE** — issue [AMS-376](/AMS/issues/AMS-376) (Backend Lead); branch `feature/AMS-368-phase-03-videos`
+- **Delivered:** `src/videos/entities/video.entity.ts` (UUID PK, timestamps, `slug` varchar(21) unique, `status` enum `video_status_enum` default `draft`, `channel_id` FK → `channels.id`, all processing fields nullable); `src/videos/videos.constants.ts` (`VIDEO_STATUS` as const object, `VideoStatus` type, `VIDEO_STATUS_TRANSITIONS` map, `canTransition()` helper); `src/videos/entities/video.entity.integration-spec.ts` (8 integration tests ✅); `src/database/migrations/1782478498145-CreateVideos.ts` (migration ✅); `src/channels/entities/channel.entity.ts` (added `@OneToMany(() => Video) videos: Video[]` inverse relation); `src/channels/channels.module.ts` (temporarily registered `Video` entity via `TypeOrmModule.forFeature([Channel, Video])` until `VideosModule` exists in SI-03.5); `src/test/create-test-data-source.ts` (added `DELETE FROM "videos"` to `cleanAllTables`); `src/database/migrations.integration-spec.ts` (updated MANAGED_TABLES + migrations array + test expectations).
+- **Tests run (in container, `db` healthy):** `src/videos/entities/video.entity.integration-spec.ts` ✅ (8/8 tests: unique slug, default draft status, enum constraint rejection, FK enforcement, relation loading, nullable fields, jsonb metadata, bigint file_size); `src/database/migrations.integration-spec.ts` ✅ (2/2 tests: apply all migrations + create 5 tables, undo last migration + drop videos table); **full suite** ✅ 26/26 test suites, 154/154 tests (`npm test -- --runInBand`); `tsc --noEmit` ✅ exit 0; **SI-03.2 files** ✅ 0 ESLint errors.
+- **Verified:** migration creates `CREATE TYPE "video_status_enum"` (singular name ✅), all columns present, FK `videos_channel_id → channels(id)`, UNIQUE index on `slug`, `idx_videos_channel_id` index; enum rejects invalid values; status defaults to `draft`; `file_size_bytes` returns string (bigint behavior); metadata stores jsonb; nullable fields accept null; Channel ↔ Video bidirectional relation works.
+- **Observations:** `video_status_enum` uses explicit `enumName: 'video_status_enum'` to avoid default `videos_status_enum`; `VIDEO_STATUS` as const object (not TS enum) with derived `VideoStatus` type; status-transition guard defined now for SI-03.5 use; all integration test files updated to include `Video` entity in `ALL_ENTITIES` arrays (TypeORM requires relation entities to build metadata).
 
 ### SI-03.3 — Storage Service (MinIO) and Storage Module
 - **Status:** not started
