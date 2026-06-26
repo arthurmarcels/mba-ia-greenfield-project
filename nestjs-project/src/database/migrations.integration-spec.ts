@@ -6,7 +6,7 @@ import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { VerificationToken } from '../auth/entities/verification-token.entity';
 import { CreateUsersAndChannels1775687773260 } from './migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from './migrations/1777579850478-CreateAuthTokens';
-import { CreateVideos1782478498145 } from './migrations/1782478498145-CreateVideos';
+import { CreateVideos1782481082147 } from './migrations/1782481082147-CreateVideos';
 import { createTestDataSource } from '../test/create-test-data-source';
 
 const MANAGED_TABLES = [
@@ -28,7 +28,7 @@ describe('Database migrations (integration)', () => {
         migrations: [
           CreateUsersAndChannels1775687773260,
           CreateAuthTokens1777579850478,
-          CreateVideos1782478498145,
+          CreateVideos1782481082147,
         ],
       },
     );
