@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ForbiddenResourceException } from '../common/exceptions/forbidden-resource.exception';
 import { IllegalVideoStatusTransitionException } from '../common/exceptions/illegal-video-status-transition.exception';
+import { SlugGenerationExhaustedException } from '../common/exceptions/slug-generation-exhausted.exception';
 import { VideoNotFoundException } from '../common/exceptions/video-not-found.exception';
 import {
   PROCESS_VIDEO_JOB,
@@ -74,18 +75,23 @@ export class VideosService {
       try {
         return await this.videoRepository.save(video);
       } catch (err) {
-        if (this.isUniqueViolation(err) && attempt < VIDEO_SLUG_MAX_RETRIES) {
-          this.logger.warn(
-            `Video slug collision (attempt ${attempt + 1}); regenerating`,
-          );
-          continue;
+        // Non-collision DB errors propagate untouched.
+        if (!this.isUniqueViolation(err)) {
+          throw err;
         }
-        throw err;
+        // Last allowed attempt still collided → give up with a typed, transient
+        // domain exception rather than the raw constraint error.
+        if (attempt >= VIDEO_SLUG_MAX_RETRIES) {
+          break;
+        }
+        this.logger.warn(
+          `Video slug collision (attempt ${attempt + 1}); regenerating`,
+        );
       }
     }
 
     // Unreachable in practice — 6 nanoid(12) draws do not all collide.
-    throw new Error('Unable to generate a unique video slug');
+    throw new SlugGenerationExhaustedException();
   }
 
   /**
