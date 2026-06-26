@@ -147,14 +147,25 @@ export class VideoProcessingProcessor extends WorkerHost {
       );
   }
 
-  /** Streams the uploaded original object to a local temp file. */
+  /**
+   * Streams the uploaded original object to a local temp file. The storage key
+   * is nullable on the entity; a `processing` row without one is a corrupt,
+   * unrecoverable state (no retry can conjure a key), so it fails terminally
+   * rather than widening the null with a cast. The thrown `UnrecoverableError`
+   * is preserved by `process()`'s catch block and rethrown → `onFailed` runs
+   * `markError` immediately (`unrecoverable` is `true`).
+   */
   private async downloadOriginal(
     video: Video,
     destPath: string,
   ): Promise<void> {
-    const { stream } = await this.storageService.getObjectRange(
-      video.video_storage_key as string,
-    );
+    const storageKey = video.video_storage_key;
+    if (!storageKey) {
+      throw new UnrecoverableError(
+        `Video ${video.id} has no storage key; cannot download original`,
+      );
+    }
+    const { stream } = await this.storageService.getObjectRange(storageKey);
     await pipeline(stream, createWriteStream(destPath));
   }
 

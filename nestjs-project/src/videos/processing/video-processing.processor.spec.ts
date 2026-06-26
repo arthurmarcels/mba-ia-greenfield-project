@@ -229,6 +229,24 @@ describe('VideoProcessingProcessor', () => {
       expect(videosService.markReady).not.toHaveBeenCalled();
     });
 
+    it('fails terminally when the processing video has no storage key', async () => {
+      // Null key = invalid state: a job can never succeed, so it must fail
+      // without widening the null via a cast (no `as string`). The thrown
+      // `UnrecoverableError` carries the null-key message; `onFailed` then
+      // calls `markError` with that message (covered by the onFailed suite).
+      videosService.findById.mockResolvedValue(
+        makeVideo({ video_storage_key: null }),
+      );
+
+      const error = await processor.process(makeJob()).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(UnrecoverableError);
+      expect((error as Error).message).toContain('has no storage key');
+      expect(storage.getObjectRange).not.toHaveBeenCalled();
+      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(videosService.markReady).not.toHaveBeenCalled();
+    });
+
     it('classifies a corrupt-file ffprobe failure as unrecoverable (no retry)', async () => {
       videosService.findById.mockResolvedValue(makeVideo());
       mockedFfmpeg.__setState({
