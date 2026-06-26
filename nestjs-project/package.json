@@ -88,8 +88,21 @@
     "rootDir": "src",
     "testRegex": ".*\\.(spec|integration-spec)\\.ts$",
     "transform": {
+      "^.+/node_modules/nanoid/.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true,
+            "module": "commonjs",
+            "esModuleInterop": true
+          }
+        }
+      ],
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "transformIgnorePatterns": [
+      "node_modules/(?!nanoid)"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

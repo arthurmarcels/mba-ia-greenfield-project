@@ -1,3 +1,31 @@
+/**
+ * Length of the public URL slug (TD-04). nanoid's URL-safe alphabet at 12 chars
+ * gives ample collision resistance for a video URL key; the column is sized to
+ * 21 to stay forward-compatible with the default nanoid size.
+ */
+export const VIDEO_SLUG_LENGTH = 12;
+
+/** Cap on slug-regeneration attempts before surfacing a hard failure. */
+export const VIDEO_SLUG_MAX_RETRIES = 5;
+
+/**
+ * Supported upload MIME types mapped to their file extension (TD-06). The DTO
+ * validates membership (SI-03.5); the controller (SI-03.6) reads the extension
+ * to derive the storage key `<channelId>/<videoId>/original.<ext>`.
+ */
+export const ALLOWED_VIDEO_MIME_TYPES = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/x-matroska': 'mkv',
+  'video/mpeg': 'mpeg',
+  'video/ogg': 'ogv',
+  'video/x-msvideo': 'avi',
+  'video/x-flv': 'flv',
+} as const;
+
+export type VideoMimeType = keyof typeof ALLOWED_VIDEO_MIME_TYPES;
+
 export const VIDEO_STATUS = {
   DRAFT: 'draft',
   UPLOADING: 'uploading',
