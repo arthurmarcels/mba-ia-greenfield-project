@@ -1,0 +1,15 @@
+FROM node:25.6.0-slim
+
+# ffmpeg traz ffmpeg + ffprobe; procps e curl auxiliam em probes/healthchecks.
+# Mesma base e versão do Node que o Dockerfile.dev da API (paridade do codebase compartilhado).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg procps curl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/node/app
+
+USER node
+
+# Padrão dev keepalive (igual ao nestjs-api): o entrypoint real (node dist/worker.js)
+# entra no SI-03.4. Sem ele agora para evitar crash-loop, pois worker.ts ainda não existe.
+CMD ["tail", "-f", "/dev/null"]
