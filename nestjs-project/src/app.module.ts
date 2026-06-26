@@ -13,7 +13,6 @@ import storageConfig from './config/storage.config';
 import swaggerConfig from './config/swagger.config';
 import { envValidationSchema } from './config/env.validation';
 import { QueueModule } from './queue/queue.module';
-import { ProcessingModule } from './videos/processing/processing.module';
 import { StorageModule } from './videos/storage/storage.module';
 import { VideosModule } from './videos/videos.module';
 
@@ -51,7 +50,12 @@ import { VideosModule } from './videos/videos.module';
     QueueModule,
     StorageModule,
     VideosModule,
-    ProcessingModule,
+    // NOTE: the BullMQ consumer (ProcessingModule / the video @Processor) is
+    // intentionally NOT imported here — the API only publishes jobs, it must not
+    // also consume them. The consumer lives in WorkerAppModule (src/worker.ts),
+    // so it is absent from this API process and from every e2e boot. Keeping the
+    // worker out of AppModule is also what prevents its blocking-connection
+    // teardown (`Connection is closed.`) from flaking the e2e suite (AMS-390).
   ],
   controllers: [AppController],
   providers: [AppService],

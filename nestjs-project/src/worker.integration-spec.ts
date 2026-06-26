@@ -2,7 +2,8 @@ import { getQueueToken } from '@nestjs/bullmq';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { Queue } from 'bullmq';
-import { AppModule } from './app.module';
+import { WorkerAppModule } from './worker.module';
+import { VideoProcessingProcessor } from './videos/processing/video-processing.processor';
 import {
   PROCESS_VIDEO_JOB,
   VIDEO_PROCESSING_QUEUE,
@@ -13,9 +14,10 @@ describe('Worker application context (integration)', () => {
   let queue: Queue | undefined;
 
   beforeAll(async () => {
-    // Mirrors src/worker.ts: a Nest application context (no HTTP server) that
-    // reuses AppModule, wiring BullMQ against the real Compose `redis` service.
-    app = await NestFactory.createApplicationContext(AppModule);
+    // Mirrors src/worker.ts: a Nest application context (no HTTP server) rooted
+    // at WorkerAppModule (AppModule + the BullMQ consumer), wiring BullMQ
+    // against the real Compose `redis` service.
+    app = await NestFactory.createApplicationContext(WorkerAppModule);
     await app.init();
     queue = app.get<Queue>(getQueueToken(VIDEO_PROCESSING_QUEUE));
   }, 30000);
@@ -33,6 +35,13 @@ describe('Worker application context (integration)', () => {
   it('boots the worker context and reaches the video-processing queue on Redis', async () => {
     expect(app).toBeDefined();
     expect(queue).toBeDefined();
+
+    // The worker root must wire the BullMQ consumer (ProcessingModule) — this is
+    // the entire purpose of the worker process and is not provided by AppModule
+    // alone (the consumer was moved out of AppModule in AMS-390).
+    expect(app?.get(VideoProcessingProcessor)).toBeInstanceOf(
+      VideoProcessingProcessor,
+    );
 
     const videoQueue = queue as Queue;
     expect(videoQueue.name).toBe(VIDEO_PROCESSING_QUEUE);
