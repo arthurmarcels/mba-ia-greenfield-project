@@ -40,6 +40,14 @@ export const VIDEO_THUMBNAIL_SIZE = '1280x720' as const;
  */
 export const VIDEO_THUMBNAIL_FILENAME = 'thumbnail.jpg' as const;
 
+/**
+ * Lifetime (seconds) of the presigned GET URL handed out by
+ * `GET /videos/:slug/download` (SI-03.8). The client downloads the bytes
+ * directly from MinIO; the URL only needs to live long enough to start that
+ * transfer, so it is deliberately short (5 minutes).
+ */
+export const VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS = 5 * 60;
+
 export const VIDEO_STATUS = {
   DRAFT: 'draft',
   UPLOADING: 'uploading',

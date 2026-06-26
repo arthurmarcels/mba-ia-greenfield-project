@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** implementation in progress — 7/9 SIs implemented (SI-03.6 ✅ just completed)
-**SIs:** 7/9 implemented (SI-03.1 ✅, SI-03.2 ✅, SI-03.3 ✅, SI-03.4 ✅, SI-03.5 ✅, SI-03.6 ✅, SI-03.7 ✅; SI-03.8/.9 not started)
+**Status:** implementation in progress — 8/9 SIs implemented (SI-03.8 ✅ just completed)
+**SIs:** 8/9 implemented (SI-03.1 ✅, SI-03.2 ✅, SI-03.3 ✅, SI-03.4 ✅, SI-03.5 ✅, SI-03.6 ✅, SI-03.7 ✅, SI-03.8 ✅; SI-03.9 not started)
 
 > Planning pipeline complete and **approved by the board** on parent AMS-368. Git Flow set up by CTO: `dev` created from `main`, working branch `feature/AMS-368-phase-03-videos` from `dev`; planning artifacts committed as the first branch commit (durable spec for all 9 SIs). Implementation routed SI-by-SI per the Dependency Map — only advance when the current SI's suite is green.
 >
@@ -69,9 +69,17 @@
   - **Lint baseline unchanged:** ~190 pre-existing ESLint errors in untouched files remain; only SI-03.7 files kept clean.
 
 ### SI-03.8 — Streaming and Download Endpoints
-- **Status:** not started
-- **Tests:** —
-- **Observations:** range-proxy `206` streaming + presigned download; `@Public` anonymous access.
+- **Status:** ✅ **DONE** — issue [AMS-389](/AMS/issues/AMS-389) (Node Backend Engineer), child of [AMS-385](/AMS/issues/AMS-385) (Backend Lead). Branch `feature/AMS-368-phase-03-videos`. Depends on SI-03.5/.3/.6 (all `done`).
+- **Delivered:**
+  - `src/common/exceptions/video-not-ready.exception.ts` — `VideoNotReadyException` (409 `VIDEO_NOT_READY`, "Video is not ready for playback"), mirroring `VideoNotFoundException`.
+  - `src/common/exceptions/range-not-satisfiable.exception.ts` — `RangeNotSatisfiableException` (416 `RANGE_NOT_SATISFIABLE`), so a malformed/out-of-bounds `Range` renders through the same `{ statusCode, error, message }` envelope.
+  - `src/videos/streaming/parse-http-range.util.ts` — pure `parseHttpRange(header, totalSize)` → `none` | `range { start, end }` | `invalid`; tolerates `bytes=a-b`, `bytes=a-`, `bytes=-suffix`, clamps end, rejects multi-range/non-`bytes`/OOB as `invalid`. HTTP-layer byte math lives here (no domain state).
+  - `src/videos/storage/storage.service.ts` — added `getObjectSize(key)` (`statObject` wrapper) so the controller resolves open/suffix ranges + 416 bounds before the ranged read; `getObjectRange`/`presignedDownloadUrl` used unmodified.
+  - `src/videos/videos.controller.ts` — `GET /videos/:slug/stream` (`@Public()`): `getReadyVideoBySlug` (404/409) → `getObjectSize` → `parseHttpRange` → 416 on `invalid` → `getObjectRange(key, range?)` → `206` (+`Accept-Ranges`/`Content-Range`/`Content-Length`/`Content-Type`) or `200` full, streamed via `@Res()` pipe. `GET /videos/:slug/download` (`@Public()`): ready video → `presignedDownloadUrl(key, <slug>.<ext>, 300s)` → `200 { url }`. `@ApiBearerAuth` per-method keeps the public routes clean; full OpenAPI annotations incl. 206/416.
+  - `src/videos/videos.constants.ts` — `VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS = 5*60`.
+  - `src/videos/streaming/parse-http-range.util.spec.ts` (18 unit), `src/videos/videos.controller.spec.ts` (+5 unit: `download` 3, `stream` 404/409 2), `test/videos-streaming.e2e-spec.ts` (12 e2e, real MinIO).
+- **Tests:** parser 18 unit ✅; controller 12 unit ✅ (5 new); streaming e2e 12 ✅; full unit+integration 225p/3skip/0fail; full e2e 73p/0fail; `tsc --noEmit` 0; lint clean on touched files.
+- **Observations:** minio v8 contract confirmed via context7 (`getPartialObject(bucket,obj,offset,length)`, `statObject().size`, `presignedGetObject` `response-content-disposition`). Layering: controller orchestrates + HTTP range math (util) + ready guard; storage owns sizing/ranging/presign; domain exceptions flow through `DomainExceptionFilter`. ⚠️ Mid-run, sibling agent **ams390** (issue **AMS-390** — the e2e-infra fix: `test:e2e --runInBand` + BullMQ `worker.on('error')` teardown guard) worktree-isolation stashed this SI's tracked edits and cleaned its untracked files; recovered via `git stash pop` + file re-creation, re-verified green. ams390's two uncommitted files (`package.json`, `video-processing.processor.ts`) were left untouched for AMS-390 to land separately.
 
 ### SI-03.9 — Documentation Update and Definition of Done
 - **Status:** not started

@@ -2,11 +2,13 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -15,11 +17,17 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import type { JwtPayload } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { ChannelsService } from '../channels/channels.service';
-import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
+import { RangeNotSatisfiableException } from '../common/exceptions/range-not-satisfiable.exception';
 import { VideoNotFoundException } from '../common/exceptions/video-not-found.exception';
+import { VideoNotReadyException } from '../common/exceptions/video-not-ready.exception';
+import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
+import type { Video } from './entities/video.entity';
+import { parseHttpRange } from './streaming/parse-http-range.util';
 import type { MultipartPart } from './storage/storage.service';
 import { CompleteUploadDto } from './dtos/complete-upload.dto';
 import { InitiateUploadDto } from './dtos/initiate-upload.dto';
@@ -28,6 +36,7 @@ import { PART_SIZE_BYTES } from './storage/storage.constants';
 import { StorageService } from './storage/storage.service';
 import {
   ALLOWED_VIDEO_MIME_TYPES,
+  VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS,
   VIDEO_STATUS,
   type VideoMimeType,
   type VideoStatus,
@@ -56,15 +65,21 @@ interface CompleteUploadResponse {
   status: VideoStatus;
 }
 
+/** Response of `GET /videos/:slug/download` (SI-03.8). */
+interface DownloadUrlResponse {
+  url: string;
+}
+
 /**
- * Authenticated upload control-plane (SI-03.6). The API never receives file
- * bytes: it pre-registers a draft + starts the multipart upload, hands out
- * presigned part-PUT URLs, and finalizes the upload + enqueues processing. The
- * caller's channel is resolved once per request from the JWT for key scoping and
- * ownership. All endpoints are authenticated (global JWT guard); none opt out
- * with `@Public()`. SI-03.8 will add `@Public` stream/download routes to this
- * same controller, so `@ApiBearerAuth` is applied per-method (not at the class
- * level) to keep those public routes clean.
+ * Upload control-plane (SI-03.6) + public playback (SI-03.8). The upload routes
+ * never receive file bytes: they pre-register a draft + start the multipart
+ * upload, hand out presigned part-PUT URLs, and finalize the upload + enqueue
+ * processing; the caller's channel is resolved once per request from the JWT for
+ * key scoping and ownership. The stream/download routes are anonymous
+ * (`@Public()`): a ready video is served by HTTP range (206) proxied from
+ * storage, or handed out as a presigned attachment URL. Because some routes are
+ * public and some are authenticated, `@ApiBearerAuth` is applied per-method
+ * (not at the class level) so the public routes stay clean.
  */
 @ApiTags('videos')
 @Controller('videos')
@@ -263,5 +278,143 @@ export class VideosController {
       slug: completed.slug,
       status: completed.status,
     };
+  }
+
+  @Public()
+  @Get(':slug/stream')
+  @ApiOperation({
+    summary: 'Stream a ready video by slug',
+    description:
+      'Anonymous. Streams a ready video proxied from object storage. With a `Range: bytes=<start>-<end>` header it responds 206 Partial Content carrying `Accept-Ranges`, `Content-Range`, `Content-Length` and `Content-Type`; without a range it responds 200 with the full object. A malformed or out-of-bounds range is rejected as 416.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Full stream (no Range header)',
+    content: {
+      'application/octet-stream': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 206,
+    description: 'Partial stream (Range honored)',
+    content: {
+      'application/octet-stream': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Unknown slug',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready for playback',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 416,
+    description: 'Range not satisfiable',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async stream(
+    @Param('slug') slug: string,
+    @Headers('range') rangeHeader: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const video = await this.getReadyVideoBySlug(slug);
+    const key = video.video_storage_key as string;
+
+    const totalSize = await this.storageService.getObjectSize(key);
+    const parsed = parseHttpRange(rangeHeader, totalSize);
+    if (parsed.kind === 'invalid') {
+      throw new RangeNotSatisfiableException();
+    }
+
+    const range =
+      parsed.kind === 'range'
+        ? { start: parsed.start, end: parsed.end }
+        : undefined;
+    const read = await this.storageService.getObjectRange(key, range);
+
+    res
+      .status(range ? HttpStatus.PARTIAL_CONTENT : HttpStatus.OK)
+      .setHeader('Accept-Ranges', 'bytes')
+      .setHeader('Content-Type', video.mime_type ?? 'application/octet-stream')
+      .setHeader('Content-Length', String(read.contentLength));
+    if (read.contentRange) {
+      res.setHeader('Content-Range', read.contentRange);
+    }
+
+    // A mid-stream storage error can no longer change the status; end cleanly.
+    read.stream.on('error', () => {
+      if (res.headersSent) {
+        res.end();
+      } else {
+        res.status(HttpStatus.INTERNAL_SERVER_ERROR).end();
+      }
+    });
+    read.stream.pipe(res);
+  }
+
+  @Public()
+  @Get(':slug/download')
+  @ApiOperation({
+    summary: 'Get a presigned download URL for a ready video',
+    description:
+      'Anonymous. Resolves a ready video by slug and returns a short-lived presigned GET URL that forces a browser download (Content-Disposition: attachment). The client downloads the bytes directly from object storage — the API does not stream them.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Presigned attachment URL',
+    schema: { properties: { url: { type: 'string' } } },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Unknown slug',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready for playback',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async download(@Param('slug') slug: string): Promise<DownloadUrlResponse> {
+    const video = await this.getReadyVideoBySlug(slug);
+    const url = await this.storageService.presignedDownloadUrl(
+      video.video_storage_key as string,
+      this.buildDownloadFilename(video),
+      VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS,
+    );
+    return { url };
+  }
+
+  /**
+   * Resolves a `ready` video by slug for the public stream/download routes:
+   * `VideoNotFoundException` (404) on absence, `VideoNotReadyException` (409)
+   * when the video is not yet playable. These are HTTP-layer guards, so they
+   * live in the controller — `VideosService` stays ownership/status-transition
+   * focused and unaware of playback readiness.
+   */
+  private async getReadyVideoBySlug(slug: string): Promise<Video> {
+    const video = await this.videosService.findBySlug(slug);
+    if (!video) {
+      throw new VideoNotFoundException();
+    }
+    if (video.status !== VIDEO_STATUS.READY) {
+      throw new VideoNotReadyException();
+    }
+    return video;
+  }
+
+  /** Derives a friendly attachment filename (`<slug>.<ext>`) for the download. */
+  private buildDownloadFilename(video: Video): string {
+    const ext = video.mime_type
+      ? ALLOWED_VIDEO_MIME_TYPES[video.mime_type as VideoMimeType]
+      : undefined;
+    return ext ? `${video.slug}.${ext}` : video.slug;
   }
 }

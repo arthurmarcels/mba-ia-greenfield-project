@@ -166,6 +166,18 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Returns the object's size in bytes (`statObject` is a HEAD — no body read).
+   * Used by the streaming controller (SI-03.8) to resolve open-ended/suffix
+   * `Range` headers and to reject out-of-bounds ranges (416) before the ranged
+   * read. It is the size source the controller owns all HTTP range math on;
+   * `getObjectRange` re-stats internally to build `Content-Range`.
+   */
+  async getObjectSize(key: string): Promise<number> {
+    const { size } = await this.client.statObject(this.bucket, key);
+    return size;
+  }
+
+  /**
    * Presigned GET URL forcing a download via `Content-Disposition: attachment`
    * with the given `filename`.
    */

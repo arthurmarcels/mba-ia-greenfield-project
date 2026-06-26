@@ -1,11 +1,14 @@
 import { Test } from '@nestjs/testing';
+import type { Response } from 'express';
 import type { JwtPayload } from '../auth/auth.types';
 import { ChannelsService } from '../channels/channels.service';
 import { ForbiddenResourceException } from '../common/exceptions/forbidden-resource.exception';
 import { VideoNotFoundException } from '../common/exceptions/video-not-found.exception';
+import { VideoNotReadyException } from '../common/exceptions/video-not-ready.exception';
 import { Video } from './entities/video.entity';
 import { PART_SIZE_BYTES } from './storage/storage.constants';
 import { StorageService } from './storage/storage.service';
+import { VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS } from './videos.constants';
 import { VideosController } from './videos.controller';
 import { VideosService } from './videos.service';
 
@@ -37,9 +40,15 @@ describe('VideosController', () => {
       beginUpload: jest.fn(),
       completeUpload: jest.fn(),
       findById: jest.fn(),
+      findBySlug: jest.fn(),
       assertVideoOwnership: jest.fn(),
     };
-    storageService = { presignPartUrl: jest.fn() };
+    storageService = {
+      presignPartUrl: jest.fn(),
+      getObjectSize: jest.fn(),
+      getObjectRange: jest.fn(),
+      presignedDownloadUrl: jest.fn(),
+    };
     channelsService = {
       findByUserId: jest.fn().mockResolvedValue({ id: CHANNEL_ID }),
     };
@@ -192,6 +201,72 @@ describe('VideosController', () => {
           CALLER,
         ),
       ).rejects.toBeInstanceOf(VideoNotFoundException);
+    });
+  });
+
+  describe('download', () => {
+    it('returns a presigned attachment URL for a ready video', async () => {
+      const video = makeVideo({ status: 'ready', mime_type: 'video/mp4' });
+      videosService.findBySlug.mockResolvedValue(video);
+      storageService.presignedDownloadUrl.mockResolvedValue('https://dl');
+
+      const result = await controller.download('abc123def456');
+
+      expect(videosService.findBySlug).toHaveBeenCalledWith('abc123def456');
+      // filename derived as <slug>.<ext> from the declared mime type
+      expect(storageService.presignedDownloadUrl).toHaveBeenCalledWith(
+        `${CHANNEL_ID}/video-1/original.mp4`,
+        'abc123def456.mp4',
+        VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS,
+      );
+      expect(result).toEqual({ url: 'https://dl' });
+    });
+
+    it('throws VideoNotFoundException for an unknown slug', async () => {
+      videosService.findBySlug.mockResolvedValue(null);
+
+      await expect(controller.download('nope')).rejects.toBeInstanceOf(
+        VideoNotFoundException,
+      );
+      expect(storageService.presignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('throws VideoNotReadyException for a non-ready video', async () => {
+      videosService.findBySlug.mockResolvedValue(
+        makeVideo({ status: 'processing' }),
+      );
+
+      await expect(controller.download('abc123def456')).rejects.toBeInstanceOf(
+        VideoNotReadyException,
+      );
+      expect(storageService.presignedDownloadUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stream', () => {
+    // The 404/409 guards throw before the Response is touched, so a stub is
+    // enough here; the 206/200 streaming paths are exercised end-to-end (real
+    // pipe + real MinIO) and the byte-range math by parseHttpRange's unit suite.
+    const res = {} as Response;
+
+    it('throws VideoNotFoundException for an unknown slug', async () => {
+      videosService.findBySlug.mockResolvedValue(null);
+
+      await expect(
+        controller.stream('nope', undefined, res),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
+      expect(storageService.getObjectSize).not.toHaveBeenCalled();
+    });
+
+    it('throws VideoNotReadyException for a non-ready video', async () => {
+      videosService.findBySlug.mockResolvedValue(
+        makeVideo({ status: 'draft' }),
+      );
+
+      await expect(
+        controller.stream('abc123def456', undefined, res),
+      ).rejects.toBeInstanceOf(VideoNotReadyException);
+      expect(storageService.getObjectSize).not.toHaveBeenCalled();
     });
   });
 });
