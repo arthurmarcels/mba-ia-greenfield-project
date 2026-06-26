@@ -3,8 +3,11 @@ import type { Response } from 'express';
 import type { JwtPayload } from '../auth/auth.types';
 import { ChannelsService } from '../channels/channels.service';
 import { ForbiddenResourceException } from '../common/exceptions/forbidden-resource.exception';
+import { IllegalVideoStatusTransitionException } from '../common/exceptions/illegal-video-status-transition.exception';
+import { UserHasNoChannelException } from '../common/exceptions/user-has-no-channel.exception';
 import { VideoNotFoundException } from '../common/exceptions/video-not-found.exception';
 import { VideoNotReadyException } from '../common/exceptions/video-not-ready.exception';
+import { VideoStorageKeyMissingException } from '../common/exceptions/video-storage-key-missing.exception';
 import { Video } from './entities/video.entity';
 import { PART_SIZE_BYTES } from './storage/storage.constants';
 import { StorageService } from './storage/storage.service';
@@ -163,6 +166,34 @@ describe('VideosController', () => {
       ).rejects.toBeInstanceOf(ForbiddenResourceException);
       expect(storageService.presignPartUrl).not.toHaveBeenCalled();
     });
+
+    it('throws IllegalVideoStatusTransitionException when the video has no active multipart upload', async () => {
+      // out-of-order call: a video that is not actively uploading lacks the
+      // key/uploadId pair → 409 instead of part-presigning.
+      videosService.findById.mockResolvedValue(
+        makeVideo({
+          status: 'draft',
+          video_storage_key: null,
+          multipart_upload_id: null,
+        }),
+      );
+
+      await expect(
+        controller.getUploadUrl('video-1', { partNumber: 1 }, CALLER),
+      ).rejects.toBeInstanceOf(IllegalVideoStatusTransitionException);
+      expect(storageService.presignPartUrl).not.toHaveBeenCalled();
+    });
+
+    it('throws UserHasNoChannelException when the caller has no channel', async () => {
+      // data inconsistency: registration creates the channel atomically with
+      // the user, so absence is a server-side bug → 500.
+      channelsService.findByUserId.mockResolvedValue(null);
+
+      await expect(
+        controller.getUploadUrl('video-1', { partNumber: 1 }, CALLER),
+      ).rejects.toBeInstanceOf(UserHasNoChannelException);
+      expect(videosService.findById).not.toHaveBeenCalled();
+    });
   });
 
   describe('complete', () => {
@@ -241,6 +272,19 @@ describe('VideosController', () => {
       );
       expect(storageService.presignedDownloadUrl).not.toHaveBeenCalled();
     });
+
+    it('throws VideoStorageKeyMissingException when a ready video has a null storage key', async () => {
+      // invariant violation: a ready video must carry its key; null → 500,
+      // never a blind cast handed to storage.
+      videosService.findBySlug.mockResolvedValue(
+        makeVideo({ status: 'ready', video_storage_key: null }),
+      );
+
+      await expect(controller.download('abc123def456')).rejects.toBeInstanceOf(
+        VideoStorageKeyMissingException,
+      );
+      expect(storageService.presignedDownloadUrl).not.toHaveBeenCalled();
+    });
   });
 
   describe('stream', () => {
@@ -266,6 +310,19 @@ describe('VideosController', () => {
       await expect(
         controller.stream('abc123def456', undefined, res),
       ).rejects.toBeInstanceOf(VideoNotReadyException);
+      expect(storageService.getObjectSize).not.toHaveBeenCalled();
+    });
+
+    it('throws VideoStorageKeyMissingException when a ready video has a null storage key', async () => {
+      // invariant violation: a ready video must carry its key; null → 500,
+      // never a blind cast handed to storage.
+      videosService.findBySlug.mockResolvedValue(
+        makeVideo({ status: 'ready', video_storage_key: null }),
+      );
+
+      await expect(
+        controller.stream('abc123def456', undefined, res),
+      ).rejects.toBeInstanceOf(VideoStorageKeyMissingException);
       expect(storageService.getObjectSize).not.toHaveBeenCalled();
     });
   });
