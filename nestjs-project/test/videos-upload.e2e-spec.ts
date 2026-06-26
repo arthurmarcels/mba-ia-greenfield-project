@@ -174,6 +174,18 @@ describe('Videos upload (e2e)', () => {
       expect((res.body as ErrorResponse).error).toBe('VALIDATION_ERROR');
     });
 
+    it('returns 400 with VALIDATION_ERROR on a non-UUID id', async () => {
+      const accessToken = await registerConfirmAndLogin('uuid@example.com');
+
+      const res = await request(app.getHttpServer())
+        .get('/videos/not-a-uuid/upload-url')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .query({ partNumber: 1 })
+        .expect(400);
+
+      expect((res.body as ErrorResponse).error).toBe('VALIDATION_ERROR');
+    });
+
     it('returns 400 on a missing partNumber', async () => {
       const accessToken = await registerConfirmAndLogin(
         'pnmissing@example.com',
@@ -265,6 +277,18 @@ describe('Videos upload (e2e)', () => {
         .expect(403);
 
       expect((res.body as ErrorResponse).error).toBe('FORBIDDEN_RESOURCE');
+    });
+
+    it('returns 400 with VALIDATION_ERROR on a non-UUID id', async () => {
+      const accessToken = await registerConfirmAndLogin('couuid@example.com');
+
+      const res = await request(app.getHttpServer())
+        .post('/videos/not-a-uuid/complete')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ parts: [{ partNumber: 1, etag: 'etag' }] })
+        .expect(400);
+
+      expect((res.body as ErrorResponse).error).toBe('VALIDATION_ERROR');
     });
   });
 });

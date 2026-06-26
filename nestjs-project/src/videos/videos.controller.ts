@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Res,
@@ -22,9 +23,12 @@ import type { JwtPayload } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ChannelsService } from '../channels/channels.service';
+import { IllegalVideoStatusTransitionException } from '../common/exceptions/illegal-video-status-transition.exception';
 import { RangeNotSatisfiableException } from '../common/exceptions/range-not-satisfiable.exception';
+import { UserHasNoChannelException } from '../common/exceptions/user-has-no-channel.exception';
 import { VideoNotFoundException } from '../common/exceptions/video-not-found.exception';
 import { VideoNotReadyException } from '../common/exceptions/video-not-ready.exception';
+import { VideoStorageKeyMissingException } from '../common/exceptions/video-storage-key-missing.exception';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
 import type { Video } from './entities/video.entity';
 import { parseHttpRange } from './streaming/parse-http-range.util';
@@ -94,12 +98,13 @@ export class VideosController {
    * Resolves the caller's channel id from the JWT subject. Registration creates
    * the channel atomically with the user, so a valid authenticated user always
    * has one; reaching the `null` branch is a data inconsistency surfaced as 500
+   * (`UserHasNoChannelException`, flowing through `DomainExceptionFilter`)
    * rather than creating a half-scoped video.
    */
   private async resolveChannelId(userId: string): Promise<string> {
     const channel = await this.channelsService.findByUserId(userId);
     if (!channel) {
-      throw new Error('Authenticated user has no channel');
+      throw new UserHasNoChannelException();
     }
     return channel.id;
   }
@@ -168,7 +173,7 @@ export class VideosController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Validation failed (invalid partNumber)',
+    description: 'Validation failed (invalid id or partNumber)',
     schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
   })
   @ApiResponse({
@@ -186,8 +191,13 @@ export class VideosController {
     description: 'Video not found',
     schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
   })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not in an active multipart upload (illegal status)',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
   async getUploadUrl(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Query() query: UploadUrlQueryDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<UploadUrlResponse> {
@@ -199,11 +209,14 @@ export class VideosController {
     this.videosService.assertVideoOwnership(video, channelId);
 
     // Only an `uploading` video (key + uploadId set by `beginUpload`) can be
-    // part-presigned; absence means the client called out of order.
+    // part-presigned; absence means the client called out of order → 409.
     const key = video.video_storage_key;
     const uploadId = video.multipart_upload_id;
     if (!key || !uploadId) {
-      throw new Error('Video has no active multipart upload');
+      throw new IllegalVideoStatusTransitionException(
+        video.status,
+        VIDEO_STATUS.UPLOADING,
+      );
     }
     const url = await this.storageService.presignPartUrl(
       key,
@@ -258,7 +271,7 @@ export class VideosController {
     schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
   })
   async complete(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: CompleteUploadDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<CompleteUploadResponse> {
@@ -326,7 +339,12 @@ export class VideosController {
     @Res() res: Response,
   ): Promise<void> {
     const video = await this.getReadyVideoBySlug(slug);
-    const key = video.video_storage_key as string;
+    const key = video.video_storage_key;
+    if (!key) {
+      // A `ready` video must carry its key (set at `beginUpload`); null is an
+      // invariant violation → 500, not a blind cast handing null to storage.
+      throw new VideoStorageKeyMissingException();
+    }
 
     const totalSize = await this.storageService.getObjectSize(key);
     const parsed = parseHttpRange(rangeHeader, totalSize);
@@ -384,8 +402,14 @@ export class VideosController {
   })
   async download(@Param('slug') slug: string): Promise<DownloadUrlResponse> {
     const video = await this.getReadyVideoBySlug(slug);
+    const key = video.video_storage_key;
+    if (!key) {
+      // A `ready` video must carry its key (set at `beginUpload`); null is an
+      // invariant violation → 500, not a blind cast handing null to storage.
+      throw new VideoStorageKeyMissingException();
+    }
     const url = await this.storageService.presignedDownloadUrl(
-      video.video_storage_key as string,
+      key,
       this.buildDownloadFilename(video),
       VIDEO_DOWNLOAD_PRESIGN_EXPIRY_SECONDS,
     );
