@@ -37,6 +37,22 @@ describe('Database migrations (integration)', () => {
       ),
       dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
     ]);
+
+    // Outras suítes de integração usam synchronize:true (default do
+    // createTestDataSource), que cria tipos enum a partir das entidades e os
+    // deixa órfãos quando suas tabelas são removidas. Limpa qualquer enum
+    // residual para que os migrations abaixo possam CREATE TYPE sem colisão.
+    // Conforme .claude/rules/typeorm-migrations.md ("Migration Tests Must
+    // Restore DB State").
+    await dataSource.query(
+      `DO $$ DECLARE r record; BEGIN
+         FOR r IN SELECT typname FROM pg_type t
+                  JOIN pg_namespace n ON t.typnamespace = n.oid
+                  WHERE n.nspname = 'public' AND t.typtype = 'e'
+         LOOP EXECUTE 'DROP TYPE IF EXISTS public."' || r.typname || '" CASCADE';
+         END LOOP;
+       END $$`,
+    );
   });
 
   afterAll(async () => {
