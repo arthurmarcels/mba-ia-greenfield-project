@@ -10,7 +10,7 @@ More info in the project overview: [docs/project-plan.md](docs/project-plan.md)
 
 This is a monorepo with two main areas:
 
-- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains modules for users, channels, videos, comments, etc.
+- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains domain modules for users, channels, videos, comments, etc.; the `videos` module (`src/videos/`) plus a separate BullMQ video-worker entrypoint (`src/worker.ts`, run via `npm run start:worker`) implement the upload → process → stream/download pipeline.
 - `docs/` — Project documentation, architecture diagrams, and planning.
 - `next-frontend/` (Next.js) — not yet initialized
 
@@ -19,11 +19,11 @@ This is a monorepo with two main areas:
 See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 
 - **Frontend** (Next.js) → calls API via REST, streams from Object Storage
-- **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to queue, sends emails
-- **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
+- **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to the Redis-backed BullMQ `video-processing` queue, sends emails. The `videos` module (`nestjs-project/src/videos/`) owns the `videos` entity/table (`video_status_enum`: draft → uploading → processing → ready | error), upload + streaming/download endpoints, storage, and DTOs.
+- **Video Worker** (BullMQ consumer + FFmpeg) → consumes `video-processing` jobs from the Redis/BullMQ queue; runs `ffprobe` + thumbnail capture via `ffmpeg` (worker image only), then marks the video `ready` (or `error`). Bundled as `nestjs-project/src/worker.ts` (`npm run start:worker` → `dist/worker.js`).
 - **Database** (PostgreSQL) → users, channels, videos, comments, likes
-- **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Object Storage** (MinIO, S3-compatible) → video files (`<channelId>/<videoId>/original.<ext>`) and thumbnails (`<channelId>/<videoId>/thumbnail.jpg`)
+- **Message Queue** (Redis via BullMQ) → the `video-processing` job queue (jobs persist across restarts via Redis AOF)
 - **Email Service** (SMTP) → account confirmation and password recovery
 
 ## Docker Networking

@@ -32,8 +32,11 @@ docker compose exec nestjs-api npm run start:dev
 ```
 
 Services:
-- `nestjs-api` — NestJS API, port `3000`
+- `nestjs-api` — NestJS API, port `3000` (built from `Dockerfile.dev`; does **not** ship ffmpeg)
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `redis` — Redis 7 (`redis:7-alpine`), port `6379`; backs the BullMQ `video-processing` queue (AOF enabled, persisted via the `redis-data` volume)
+- `minio` — MinIO (S3-compatible object storage), port `9000` (S3 API) + `9001` (web console); holds video originals and thumbnails (persisted via the `minio-data` volume)
+- `video-worker` — NestJS worker image built from `Dockerfile.worker` (ships **ffmpeg + ffprobe**); runs `npm run start:worker` (`node dist/worker.js`), which boots `WorkerAppModule` and consumes the BullMQ `video-processing` queue (ffprobe + thumbnail → `ready`/`error`)
 
 All verification and teardown commands run on the **host machine**:
 
@@ -62,6 +65,7 @@ docker compose down
 npm run start:dev                        # Dev server with hot-reload
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
+npm run start:worker                     # Video worker — BullMQ consumer (node dist/worker.js); run in the video-worker container, never nestjs-api
 
 npm test                                 # Unit tests
 npm run test:watch                       # Unit tests in watch mode
@@ -72,6 +76,8 @@ npx tsc --noEmit                         # Type-check (required before declaring
 npm run lint                             # ESLint with auto-fix
 npm run format                           # Prettier formatting
 ```
+
+> **Video worker & ffmpeg:** `npm run start:worker` (`node dist/worker.js`) starts the BullMQ consumer for the `video-processing` queue, but it **must run in the `video-worker` container** — `docker compose exec video-worker npm run start:worker` — never in `nestjs-api`. Only the `video-worker` image (built from `Dockerfile.worker`) ships **ffmpeg/ffprobe**; the `nestjs-api` image has none. Any ffmpeg/ffprobe call or processing inspection (probe a file, check a thumbnail, watch the worker log) runs against `video-worker` (e.g. `docker compose exec video-worker ...`).
 
 ### Host-only commands (Docker / connectivity probes)
 
