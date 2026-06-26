@@ -21,6 +21,18 @@ function isPgUniqueViolationOnColumn(err: unknown, column: string): boolean {
 export class ChannelsService {
   constructor(private readonly dataSource: DataSource) {}
 
+  /**
+   * Finds the channel owned by `userId` (1:1 user → channel). Returns `null`
+   * when absent — callers that require a channel translate the absence (e.g. the
+   * upload controller treats it as an invariant violation, since registration
+   * creates the channel atomically with the user).
+   */
+  async findByUserId(userId: string): Promise<Channel | null> {
+    return this.dataSource
+      .getRepository(Channel)
+      .findOneBy({ user_id: userId });
+  }
+
   async createChannel(userId: string, email: string): Promise<Channel> {
     const baseNickname = sanitizeNickname(email.split('@')[0]);
 
