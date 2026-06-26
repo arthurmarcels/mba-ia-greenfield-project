@@ -4,7 +4,18 @@
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
+    "^.+/node_modules/nanoid/.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true,
+          "module": "commonjs",
+          "esModuleInterop": true
+        }
+      }
+    ],
     "^.+\\.(t|j)s$": "ts-jest"
   },
+  "transformIgnorePatterns": ["node_modules/(?!nanoid)"],
   "setupFiles": ["dotenv/config"]
 }

@@ -1,0 +1,19 @@
+FROM node:25.6.0-slim
+
+# ffmpeg traz ffmpeg + ffprobe; procps e curl auxiliam em probes/healthchecks.
+# Mesma base e versão do Node que o Dockerfile.dev da API (paridade do codebase compartilhado).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg procps curl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/node/app
+
+USER node
+
+# Padrão dev keepalive (igual ao Dockerfile.dev do nestjs-api, em linha com a regra
+# "nunca iniciar o servidor de aplicação automaticamente" do nestjs-project/CLAUDE.md).
+# O entrypoint do worker — src/worker.ts, compilado para dist/worker.js — foi entregue
+# no SI-03.4 e sobe via `docker compose exec video-worker npm run start:worker`
+# (espelhando como a API sobe via `exec nestjs-api npm run start:dev`).
+# Em um build de produção, substitua esta linha por `CMD ["node", "dist/worker.js"]`.
+CMD ["tail", "-f", "/dev/null"]
