@@ -2,7 +2,10 @@ import type { ConfigType } from '@nestjs/config';
 import { Client } from 'minio';
 import { Readable } from 'stream';
 import storageConfig from '../../config/storage.config';
-import { StorageService } from './storage.service';
+import {
+  sanitizeContentDispositionFilename,
+  StorageService,
+} from './storage.service';
 
 jest.mock('minio');
 
@@ -52,6 +55,37 @@ type MinioClientStub = {
   >;
   removeObject: jest.Mock<Promise<void>, [string]>;
 };
+
+describe('sanitizeContentDispositionFilename', () => {
+  it('leaves a clean filename untouched', () => {
+    expect(sanitizeContentDispositionFilename('video.mp4')).toBe('video.mp4');
+  });
+
+  it('strips double quotes that would escape the quoted token', () => {
+    expect(sanitizeContentDispositionFilename('vi"deo.mp4')).toBe('video.mp4');
+  });
+
+  it('strips CR and LF that would enable response-splitting', () => {
+    // `video.mp4\r\nSet-Cookie: x` would otherwise inject a second header line.
+    expect(
+      sanitizeContentDispositionFilename('video.mp4\r\nSet-Cookie: x'),
+    ).toBe('video.mp4Set-Cookie: x');
+  });
+
+  it('strips the null byte that would truncate the value in C parsers', () => {
+    expect(sanitizeContentDispositionFilename('vi\0deo.mp4')).toBe('video.mp4');
+  });
+
+  it('strips path separators (/ and \\)', () => {
+    expect(sanitizeContentDispositionFilename('../etc/vi\\deo.mp4')).toBe(
+      '..etcvideo.mp4',
+    );
+  });
+
+  it('falls back to a neutral name when nothing safe remains', () => {
+    expect(sanitizeContentDispositionFilename('"///\\\\')).toBe('download');
+  });
+});
 
 describe('StorageService', () => {
   beforeEach(() => {
@@ -223,6 +257,22 @@ describe('StorageService', () => {
     );
 
     expect(url).toBe('https://signed/download');
+    expect(client.presignedGetObject).toHaveBeenCalledWith(
+      'unit-bucket',
+      'channel/key',
+      3600,
+      { 'response-content-disposition': 'attachment; filename="video.mp4"' },
+    );
+  });
+
+  it('presignedDownloadUrl sanitizes an injected filename into a well-formed header', async () => {
+    const { service, client } = makeService();
+    client.presignedGetObject.mockResolvedValue('https://signed/download');
+
+    await service.presignedDownloadUrl('channel/key', 'vi"deo\r\n.mp4', 3600);
+
+    // The quote, CR, and LF are stripped before the value is built; no token
+    // escape or extra header line can survive.
     expect(client.presignedGetObject).toHaveBeenCalledWith(
       'unit-bucket',
       'channel/key',
