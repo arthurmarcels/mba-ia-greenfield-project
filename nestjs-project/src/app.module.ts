@@ -13,6 +13,7 @@ import storageConfig from './config/storage.config';
 import swaggerConfig from './config/swagger.config';
 import { envValidationSchema } from './config/env.validation';
 import { QueueModule } from './queue/queue.module';
+import { ProcessingModule } from './videos/processing/processing.module';
 import { StorageModule } from './videos/storage/storage.module';
 import { VideosModule } from './videos/videos.module';
 
@@ -50,6 +51,7 @@ import { VideosModule } from './videos/videos.module';
     QueueModule,
     StorageModule,
     VideosModule,
+    ProcessingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

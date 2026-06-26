@@ -26,6 +26,20 @@ export const ALLOWED_VIDEO_MIME_TYPES = {
 
 export type VideoMimeType = keyof typeof ALLOWED_VIDEO_MIME_TYPES;
 
+/**
+ * Target resolution for the midpoint thumbnail captured by the worker (SI-03.7).
+ * Used as the `size` option of `fluent-ffmpeg` `screenshots`.
+ */
+export const VIDEO_THUMBNAIL_SIZE = '1280x720' as const;
+
+/**
+ * Thumbnail object filename. The processor stores the captured JPEG at the key
+ * `<channelId>/<videoId>/thumbnail.jpg` (SI-03.7) — the same key SI-03.8/streaming
+ * resolves the public thumbnail URL from. Centralized so producer and consumer
+ * agree on the exact suffix.
+ */
+export const VIDEO_THUMBNAIL_FILENAME = 'thumbnail.jpg' as const;
+
 export const VIDEO_STATUS = {
   DRAFT: 'draft',
   UPLOADING: 'uploading',
