@@ -32,6 +32,31 @@ export interface ObjectRangeRead {
 const DEFAULT_PRESIGN_EXPIRY_SECONDS = 60 * 60;
 
 /**
+ * Characters that would break the `Content-Disposition: attachment; filename="…"`
+ * value emitted on a presigned download GET: a stray `"` escapes the quoted
+ * token, CR/LF smuggle extra header lines (HTTP response-splitting when S3/MinIO
+ * echoes the value as the real `Content-Disposition`), a null byte truncates the
+ * string in C-based parsers, and `/`/`\` are path separators with no place in a
+ * bare filename. All are stripped from caller-supplied filenames.
+ */
+const CONTENT_DISPOSITION_FILENAME_DENY = /["\r\n\0/\\]/g;
+
+/** Neutral fallback when sanitization leaves nothing usable (avoids `filename=""`). */
+const CONTENT_DISPOSITION_FALLBACK_FILENAME = 'download';
+
+/**
+ * Sanitizes a caller-supplied `filename` before it is interpolated into a
+ * `Content-Disposition` header value, closing the header-injection / quoted-
+ * token-escape vector of `presignedDownloadUrl`. Returns the filename with the
+ * `CONTENT_DISPOSITION_FILENAME_DENY` characters removed, or a neutral fallback
+ * when nothing safe remains.
+ */
+export function sanitizeContentDispositionFilename(filename: string): string {
+  const cleaned = filename.replace(CONTENT_DISPOSITION_FILENAME_DENY, '');
+  return cleaned.length > 0 ? cleaned : CONTENT_DISPOSITION_FALLBACK_FILENAME;
+}
+
+/**
  * Single owner of object-storage interaction (single-responsibility). Wraps the
  * MinIO client and exposes the operations the rest of Phase 03 needs:
  * presigned multipart upload (TD-02), HTTP range streaming (TD-05), and the
@@ -179,15 +204,19 @@ export class StorageService implements OnModuleInit {
 
   /**
    * Presigned GET URL forcing a download via `Content-Disposition: attachment`
-   * with the given `filename`.
+   * with the given `filename`. The `filename` is sanitized first — it is
+   * caller-supplied and flows into a header value echoed back by S3/MinIO, so a
+   * raw quote/CR/LF/null/path-separator would enable response-splitting or token
+   * escape (Finding 5, AMS-400).
    */
   async presignedDownloadUrl(
     key: string,
     filename: string,
     expiry: number = DEFAULT_PRESIGN_EXPIRY_SECONDS,
   ): Promise<string> {
+    const safeFilename = sanitizeContentDispositionFilename(filename);
     return this.client.presignedGetObject(this.bucket, key, expiry, {
-      'response-content-disposition': `attachment; filename="${filename}"`,
+      'response-content-disposition': `attachment; filename="${safeFilename}"`,
     });
   }
 
