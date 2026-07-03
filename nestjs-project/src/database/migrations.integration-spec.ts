@@ -35,12 +35,14 @@ describe('Database migrations (integration)', () => {
 
     await dataSource.initialize();
 
-    await Promise.all([
-      ...MANAGED_TABLES.map((table) =>
-        dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`),
-      ),
-      dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
-    ]);
+    // DROPs sequenciais (não Promise.all): `DROP TABLE ... CASCADE`
+    // concorrentes em tabelas com FK (channels → users) adquirem locks em
+    // ordem conflitante e disparam "deadlock detected" quando as tabelas já
+    // existem (banco populado por outras suítes ou por migration:run).
+    // Serializar elimina a corrida sem alterar o estado final.
+    for (const table of [...MANAGED_TABLES, 'migrations']) {
+      await dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`);
+    }
 
     // Outras suítes de integração usam synchronize:true (default do
     // createTestDataSource), que cria tipos enum a partir das entidades e os
