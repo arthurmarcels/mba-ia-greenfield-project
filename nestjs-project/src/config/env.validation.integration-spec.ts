@@ -1,4 +1,10 @@
+import * as Joi from 'joi';
 import { envValidationSchema } from './env.validation';
+
+interface ValidatedEnv {
+  SWAGGER_ENABLED: string;
+  [key: string]: unknown;
+}
 
 const requiredEnv = {
   DB_USERNAME: 'user',
@@ -10,11 +16,13 @@ const requiredEnv = {
   STORAGE_SECRET_KEY: 'minioadmin',
 };
 
-const validate = (env: Record<string, string>) =>
+const validate = (
+  env: Record<string, string>,
+): { value: ValidatedEnv; error?: Joi.ValidationError } =>
   envValidationSchema.validate(
     { ...requiredEnv, ...env },
     { allowUnknown: true, abortEarly: false },
-  );
+  ) as { value: ValidatedEnv; error?: Joi.ValidationError };
 
 describe('envValidationSchema — SWAGGER_ENABLED', () => {
   it('should reject SWAGGER_ENABLED with an invalid value', () => {

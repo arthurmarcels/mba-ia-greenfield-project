@@ -32,4 +32,20 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // `unbound-method` é incompatível com asserções idiomáticas do Jest do
+    // tipo `expect(mock.method).toHaveBeenCalledWith(...)` — o próprio
+    // typescript-eslint recomenda desabilitá-la (ou usar `jest/unbound-method`)
+    // em bases com Jest. Apenas a regra de estilo `unbound-method` é relaxada
+    // em arquivos de teste; as regras de type-safety (`no-unsafe-*`) seguem
+    // enforcing. Ref: https://typescript-eslint.io/rules/unbound-method/
+    files: [
+      '**/*.spec.ts',
+      '**/*.integration-spec.ts',
+      '**/*.e2e-spec.ts',
+    ],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
 );
