@@ -1,8 +1,16 @@
-import { QueryFailedError } from 'typeorm';
+import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { ChannelsService } from './channels.service';
 import { Channel } from './entities/channel.entity';
 
-function makeManager(overrides: Record<string, jest.Mock> = {}): any {
+type MockEntityManager = {
+  findOne: jest.Mock;
+  create: jest.Mock;
+  save: jest.Mock;
+};
+
+function makeManager(
+  overrides: Partial<MockEntityManager> = {},
+): MockEntityManager {
   return {
     findOne: jest.fn(),
     create: jest.fn(),
@@ -24,16 +32,21 @@ function makeChannel(nickname: string): Channel {
 }
 
 function makeUniqueError(): QueryFailedError {
-  const err = new QueryFailedError('INSERT', [], new Error()) as any;
-  err.code = '23505';
-  err.detail = 'Key (nickname)=(abc) already exists.';
-  return err;
+  // O service lê err.driverError.code/detail (erro real do driver pg),
+  // então simulamos o driverError — não o QueryFailedError em si.
+  const driverError = Object.assign(new Error('unique violation'), {
+    code: '23505',
+    detail: 'Key (nickname)=(abc) already exists.',
+  });
+  return new QueryFailedError('INSERT', [], driverError);
 }
 
-function makeDataSource(manager: any): any {
+function makeDataSource(manager: MockEntityManager): DataSource {
   return {
-    transaction: jest.fn((cb: (manager: any) => Promise<any>) => cb(manager)),
-  };
+    transaction: jest.fn((cb: (manager: EntityManager) => Promise<unknown>) =>
+      cb(manager as unknown as EntityManager),
+    ),
+  } as unknown as DataSource;
 }
 
 describe('ChannelsService', () => {
